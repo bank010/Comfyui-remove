@@ -18,15 +18,21 @@ class S3:
         self.s3_client = self.get_client()
         self.input_dir = os.getenv("S3_INPUT_DIR")
         self.output_dir = os.getenv("S3_OUTPUT_DIR")
-        if not self.does_folder_exist(self.input_dir):
-            self.create_folder(self.input_dir)
-        if not self.does_folder_exist(self.output_dir):
-            self.create_folder(self.output_dir)
+        
+        # Only create folders if S3 client is properly initialized
+        if self.s3_client is not None:
+            if self.input_dir and not self.does_folder_exist(self.input_dir):
+                self.create_folder(self.input_dir)
+            if self.output_dir and not self.does_folder_exist(self.output_dir):
+                self.create_folder(self.output_dir)
+        else:
+            logger.error("S3 客户端初始化失败，请检查 .env 配置文件中的 S3 环境变量")
 
     def get_client(self):
         if not all([self.region, self.access_key, self.secret_key, self.bucket_name]):
             err = "Missing required S3 environment variables."
             logger.error(err)
+            return None
     
         try:
             addressing_style = os.getenv("S3_ADDRESSING_STYLE", "auto")
@@ -51,8 +57,12 @@ class S3:
         except Exception as e:
             err = f"Failed to create S3 client: {e}"
             logger.error(err)
+            return None
 
     def get_files(self, prefix):
+        if self.s3_client is None:
+            logger.error("S3 客户端未初始化")
+            return []
         if self.does_folder_exist(prefix):
             try:
                 bucket = self.s3_client.Bucket(self.bucket_name)
@@ -66,6 +76,9 @@ class S3:
             return []
     
     def does_folder_exist(self, folder_name):
+        if self.s3_client is None:
+            logger.error("S3 客户端未初始化")
+            return False
         try:
             bucket = self.s3_client.Bucket(self.bucket_name)
             response = bucket.objects.filter(Prefix=folder_name)
@@ -73,8 +86,12 @@ class S3:
         except Exception as e:
             err = f"Failed to check if folder exists in S3: {e}"
             logger.error(err)
+            return False
     
     def create_folder(self, folder_name):
+        if self.s3_client is None:
+            logger.error("S3 客户端未初始化")
+            return
         try:
             bucket = self.s3_client.Bucket(self.bucket_name)
             bucket.put_object(Key=f"{folder_name}/")
@@ -83,6 +100,9 @@ class S3:
             logger.error(err)
     
     def download_file(self, s3_path, local_path):
+        if self.s3_client is None:
+            logger.error("S3 客户端未初始化")
+            return None
         local_dir = os.path.dirname(local_path)
         if not os.path.exists(local_dir):
             os.makedirs(local_dir)
@@ -93,11 +113,16 @@ class S3:
         except NoCredentialsError:
             err = "Credentials not available or not valid."
             logger.error(err)
+            return None
         except Exception as e:
             err = f"Failed to download file from S3: {e}"
             logger.error(err)
+            return None
 
     def upload_file(self, local_path, s3_path):
+        if self.s3_client is None:
+            logger.error("S3 客户端未初始化，请检查 .env 配置")
+            return None
         try:
             bucket = self.s3_client.Bucket(self.bucket_name)
             bucket.upload_file(local_path, s3_path)
@@ -105,9 +130,11 @@ class S3:
         except NoCredentialsError:
             err = "Credentials not available or not valid."
             logger.error(err)
+            return None
         except Exception as e:
             err = f"Failed to upload file to S3: {e}"
             logger.error(err)
+            return None
     
     def get_save_path(self, filename_prefix, image_width=0, image_height=0):
         def map_filename(filename):
