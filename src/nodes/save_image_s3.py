@@ -1,6 +1,5 @@
 import os
 import json
-import tempfile
 import numpy as np
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
@@ -12,8 +11,6 @@ S3_INSTANCE = get_s3_instance()
 
 class SaveImageS3:
     def __init__(self):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-        self.temp_dir = os.path.join(base_dir, "temp/")
         self.s3_output_dir = os.getenv("S3_OUTPUT_DIR")
         self.type = "output"
         self.prefix_append = ""
@@ -23,7 +20,9 @@ class SaveImageS3:
     def INPUT_TYPES(s):
         return {"required": {
             "images": ("IMAGE", ),
-            "filename_prefix": ("STRING", {"default": "Image"})},
+            "filename_prefix": ("STRING", {"default": "Image"}),
+            "delete_local": (["false", "true"],),
+            },
             "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"
             },
                 }
@@ -35,11 +34,19 @@ class SaveImageS3:
     OUTPUT_IS_LIST = (True,)
     CATEGORY = "ComfyS3"
 
-    def save_images(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+    def save_images(self, images, filename_prefix="ComfyUI", delete_local="false", prompt=None, extra_pnginfo=None):
         filename_prefix += self.prefix_append
         full_output_folder, filename, counter, subfolder, filename_prefix = S3_INSTANCE.get_save_path(filename_prefix, images[0].shape[1], images[0].shape[0])
         results = list()
         s3_image_paths = list()
+        
+        # Get local output folder from ComfyUI
+        from folder_paths import get_output_directory
+        local_output_folder = get_output_directory()
+        if subfolder:
+            local_output_folder = os.path.join(local_output_folder, subfolder)
+        if not os.path.exists(local_output_folder):
+            os.makedirs(local_output_folder)
         
         for image in images:
             i = 255. * image.cpu().numpy()
@@ -54,33 +61,37 @@ class SaveImageS3:
                         metadata.add_text(x, json.dumps(extra_pnginfo[x]))
             
             file = f"{filename}_{counter:05}_.png"
-            temp_file = None
-            try:
-                # Create a temporary file
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
-                    temp_file_path = temp_file.name
-                    
-                    # Save the image to the temporary file
-                    img.save(temp_file_path, pnginfo=metadata, compress_level=self.compress_level)
-
-                    # Upload the temporary file to S3
-                    s3_path = os.path.join(full_output_folder, file)
-                    file_path = S3_INSTANCE.upload_file(temp_file_path, s3_path)
-
-                    # Add the s3 path to the s3_image_paths list
-                    s3_image_paths.append(file_path)
-                    
-                    # Add the result to the results list
-                    results.append({
-                        "filename": file,
-                        "subfolder": subfolder,
-                        "type": self.type
-                    })
-                    counter += 1
-
-            finally:
-                # Delete the temporary file
-                if temp_file_path and os.path.exists(temp_file_path):
-                    os.remove(temp_file_path)
+            
+            # Save to local output folder
+            local_file_path = os.path.join(local_output_folder, file)
+            img.save(local_file_path, pnginfo=metadata, compress_level=self.compress_level)
+            
+            # Upload to S3
+            s3_path = os.path.join(full_output_folder, file)
+            file_path = S3_INSTANCE.upload_file(local_file_path, s3_path)
+            
+            # Only process if upload was successful
+            if file_path:
+                # Add the s3 path to the s3_image_paths list
+                s3_image_paths.append(file_path)
+                
+                # Add the result to the results list
+                results.append({
+                    "filename": file,
+                    "subfolder": subfolder,
+                    "type": self.type
+                })
+                
+                # Delete local file after successful upload if delete_local is true
+                if delete_local == "true" and os.path.exists(local_file_path):
+                    try:
+                        os.remove(local_file_path)
+                        print(f"已删除本地图片文件: {local_file_path}")
+                    except Exception as e:
+                        print(f"删除本地图片文件失败 {local_file_path}: {str(e)}")
+            else:
+                print(f"上传图片文件失败，未删除本地文件: {local_file_path}")
+            
+            counter += 1
 
         return { "ui": { "images": results },  "result": (s3_image_paths,) }
