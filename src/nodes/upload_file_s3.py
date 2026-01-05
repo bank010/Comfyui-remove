@@ -34,14 +34,17 @@ class UploadFileS3:
             # Only delete local file if upload was successful (file_path is returned)
             if file_path:
                 s3_paths.append(file_path)
+                
+                # Log successful upload
+                print(f"✅ 已上传文件到 S3: {file_path}")
+                
                 if delete_local == "true" and os.path.exists(path):
                     try:
                         os.remove(path)
-                        print(f"已删除本地文件: {path}")
+                        print(f"   已删除本地文件: {path}")
                     except Exception as e:
-                        print(f"删除本地文件失败 {path}: {str(e)}")
-                print(f"已上传文件到 S3: {s3_path}")
+                        print(f"   删除本地文件失败: {str(e)}")
             else:
-                print(f"上传失败，未删除本地文件: {path}")
+                print(f"❌ 上传失败，未删除本地文件: {path}")
         
         return { "ui": { "s3_paths": s3_paths },  "result": (s3_paths,) }
