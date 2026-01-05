@@ -30,9 +30,18 @@ class UploadFileS3:
             f_name = s3_filename if s3_filename else os.path.basename(path)
             s3_path = os.path.join(s3_folder, f_name)
             file_path = S3_INSTANCE.upload_file(path, s3_path)
-            s3_paths.append(file_path)
-            if delete_local == "true":
-                os.remove(path)
-                print(f"Deleted file at {path}")
-        print(f"Uploaded file to S3 at {s3_path}")
+            
+            # Only delete local file if upload was successful (file_path is returned)
+            if file_path:
+                s3_paths.append(file_path)
+                if delete_local == "true" and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                        print(f"已删除本地文件: {path}")
+                    except Exception as e:
+                        print(f"删除本地文件失败 {path}: {str(e)}")
+                print(f"已上传文件到 S3: {s3_path}")
+            else:
+                print(f"上传失败，未删除本地文件: {path}")
+        
         return { "ui": { "s3_paths": s3_paths },  "result": (s3_paths,) }
