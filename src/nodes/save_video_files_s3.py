@@ -109,4 +109,4 @@ class SaveVideoFilesS3:
             
             counter += 1
         
-        return (s3_video_paths,)
+        return { "ui": { "s3_video_paths": s3_video_paths },  "result": (s3_video_paths,) }
